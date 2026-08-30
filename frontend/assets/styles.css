@@ -1,0 +1,466 @@
+/* Network Log Server -- operator console
+ *
+ * Design notes for whoever maintains this:
+ *
+ * Light, not dark. The people using this read thousands of IP addresses in a
+ * lit office during a lawful-intercept request, not in a dark NOC. A dense
+ * light table is easier on the eyes for that job than another dark dashboard.
+ *
+ * Every network object is monospaced with tabular figures so octets and ports
+ * line up column-wise down the table and a wrong digit is visible at a glance.
+ * Everything that is interface chrome is small, uppercase and letterspaced.
+ * That split -- mono for data, tracked caps for chrome -- is the whole type system.
+ *
+ * The two sides of a translation are colour-coded consistently everywhere they
+ * appear: inside/private is teal, outside/public is indigo, destination is ink.
+ * No external fonts or CDNs: this installs on air-gapped ISP networks.
+ */
+
+:root {
+  --paper:      #eceff3;
+  --surface:    #ffffff;
+  --sunken:     #f5f7f9;
+  --ink:        #101820;
+  --muted:      #5d6f81;
+  --line:       #ccd4dd;
+  --line-soft:  #e2e8ee;
+
+  --inside:     #0b6e63;
+  --inside-bg:  #e2f2f0;
+  --outside:    #2f4bb0;
+  --outside-bg: #e6eaf8;
+  --alert:      #b4321f;
+  --alert-bg:   #fbe9e6;
+  --ok:         #1c7a3e;
+  --warn:       #9a6400;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --radius: 3px;
+  --shadow: 0 1px 2px rgba(16, 24, 32, .08), 0 4px 12px rgba(16, 24, 32, .04);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- shared primitives ------------------------------------------------ */
+
+.label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 5px;
+}
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+input, select, button, textarea {
+  font-family: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+
+input[type="text"], input[type="password"], input[type="number"],
+input[type="datetime-local"], select {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  transition: border-color .12s, box-shadow .12s;
+}
+
+input:focus, select:focus, button:focus-visible {
+  outline: none;
+  border-color: var(--outside);
+  box-shadow: 0 0 0 3px rgba(47, 75, 176, .15);
+}
+
+button:focus-visible { outline: 2px solid var(--outside); outline-offset: 2px; }
+
+.btn {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 550;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--sunken); border-color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.btn-primary:hover { background: #1e2b38; border-color: #1e2b38; }
+
+.btn-danger { color: var(--alert); border-color: #e3b7af; }
+.btn-danger:hover { background: var(--alert-bg); border-color: var(--alert); }
+
+.btn-sm { padding: 4px 9px; font-size: 12px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.hidden { display: none !important; }
+
+/* ---- login ------------------------------------------------------------ */
+
+#login-view {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* A faint grid: the only decoration in the product, and it reads as
+     addressable space rather than ornament. */
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 4px rgba(16,24,32,.06), 0 12px 32px rgba(16,24,32,.08);
+  padding: 32px 30px 26px;
+}
+
+.login-brand { text-align: center; margin-bottom: 26px; }
+.login-brand img { max-height: 56px; max-width: 200px; margin-bottom: 12px; }
+.login-brand h1 { font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+.login-brand .sub {
+  font-size: 10px; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--muted); margin-top: 6px;
+}
+
+.field { margin-bottom: 14px; }
+
+.msg {
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  margin-bottom: 14px;
+  border: 1px solid transparent;
+}
+.msg-error { background: var(--alert-bg); color: var(--alert); border-color: #e8c2bb; }
+.msg-ok    { background: #e6f4ea; color: var(--ok); border-color: #bcdfc7; }
+.msg-warn  { background: #fdf3e0; color: var(--warn); border-color: #ecd9ae; }
+
+/* ---- app shell -------------------------------------------------------- */
+
+#app-view { display: flex; flex-direction: column; min-height: 100%; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px;
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topbar .brand img { max-height: 28px; max-width: 130px; }
+.topbar .brand span {
+  font-weight: 650; font-size: 14.5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.tabs { display: flex; gap: 2px; margin-left: 18px; }
+
+.tab {
+  padding: 0 15px;
+  height: 51px;
+  line-height: 51px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--ink); }
+.tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+
+.topbar .spacer { flex: 1; }
+
+.topbar .who {
+  font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted);
+}
+
+main { flex: 1; padding: 18px 20px 44px; }
+.view { max-width: 1500px; margin: 0 auto; }
+
+/* ---- search ----------------------------------------------------------- */
+
+.search-panel { padding: 16px 18px; margin-bottom: 14px; }
+
+/* The lookup presets encode the three real investigations this tool serves.
+   They are not decoration -- each one focuses a different field and clears
+   the rest, because mixing them is how you get a slow query. */
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+
+.preset {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  background: var(--sunken);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.preset:hover { border-color: var(--muted); color: var(--ink); }
+.preset.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 11px 13px;
+}
+
+.filter-grid .side-inside .label  { color: var(--inside); }
+.filter-grid .side-outside .label { color: var(--outside); }
+
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+.search-actions .spacer { flex: 1; }
+
+.result-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- results table ---------------------------------------------------- */
+
+.table-wrap { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  padding: 9px 11px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--sunken);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th .arrow { color: var(--ink); margin-left: 3px; }
+
+td {
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+tbody tr:hover { background: var(--sunken); }
+
+.col-inside  { color: var(--inside); }
+.col-outside { color: var(--outside); font-weight: 550; }
+.port { color: var(--muted); }
+
+.subscriber {
+  font-weight: 600;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.proto-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.empty {
+  padding: 46px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty strong { display: block; color: var(--ink); font-size: 15px; margin-bottom: 5px; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--sunken);
+}
+.pager .spacer { flex: 1; }
+
+/* ---- routers ---------------------------------------------------------- */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-head h2 { font-size: 15px; font-weight: 650; margin: 0; }
+.section-head p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.section-head .spacer { flex: 1; }
+
+.status-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dot-on  { background: var(--ok); }
+.dot-off { background: var(--muted); opacity: .5; }
+
+.row-actions { display: flex; gap: 5px; }
+
+/* ---- modal ------------------------------------------------------------ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 32, .42);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 48px rgba(16, 24, 32, .28);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal header {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 650;
+}
+.modal .body { padding: 18px 20px; }
+.modal footer {
+  padding: 13px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  background: var(--sunken);
+}
+
+/* ---- status panel ----------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 11px;
+  margin-bottom: 16px;
+}
+
+.stat { padding: 13px 15px; }
+.stat .k { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.stat .v {
+  font-family: var(--mono);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 5px;
+  letter-spacing: -.02em;
+}
+.stat .sub { font-size: 11.5px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+.stat.bad .v { color: var(--alert); }
+.stat.good .v { color: var(--ok); }
+
+/* ---- footer credit ---------------------------------------------------- */
+
+.credit {
+  position: fixed;
+  right: 13px;
+  bottom: 9px;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(236, 239, 243, .9);
+  padding: 2px 8px;
+  border-radius: 100px;
+  pointer-events: none;
+  z-index: 40;
+}
+
+/* ---- responsive ------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar .brand span { max-width: 110px; }
+  .topbar .who { display: none; }
+  .tabs { margin-left: 6px; }
+  .tab { padding: 0 10px; }
+  main { padding: 12px 10px 40px; }
+  .filter-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

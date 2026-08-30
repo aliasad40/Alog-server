@@ -1,0 +1,41 @@
+[Unit]
+Description=Network Log Server -- web API
+After=network-online.target redis-server.service clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netlog
+Group=netlog
+Environment=NLS_CONFIG_DIR=/etc/network-log-server
+Environment=PYTHONPATH=/opt/network-log-server/backend
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/network-log-server/backend
+ExecStart=/opt/network-log-server/venv/bin/uvicorn app.api.app:get_app \
+    --factory --host 127.0.0.1 --port 8088 --workers 2 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/network-log-server /var/log/network-log-server
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

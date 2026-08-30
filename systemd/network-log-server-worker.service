@@ -1,0 +1,40 @@
+[Unit]
+Description=Network Log Server -- ClickHouse batch writer
+After=network-online.target redis-server.service clickhouse-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=netlog
+Group=netlog
+Environment=NLS_CONFIG_DIR=/etc/network-log-server
+Environment=PYTHONPATH=/opt/network-log-server/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/network-log-server/venv/bin/python -m app.services.worker
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+# Give the worker time to hand its in-flight claim back to Redis on stop.
+TimeoutStopSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/network-log-server /var/log/network-log-server
+LimitNOFILE=32768
+
+[Install]
+WantedBy=multi-user.target

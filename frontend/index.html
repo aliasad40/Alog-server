@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="same-origin">
+<title>Network Log Server</title>
+<link rel="stylesheet" href="/assets/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23101820'/><path d='M4 8h8M9 5l3 3-3 3' stroke='%23fff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+
+<!-- ============================ LOGIN ============================ -->
+<div id="login-view">
+  <div class="login-card">
+    <div class="login-brand">
+      <img id="login-logo" class="hidden" alt="">
+      <h1 id="login-company">Network Log Server</h1>
+      <div class="sub">Sign in</div>
+    </div>
+    <div id="login-msg" class="msg msg-error hidden"></div>
+    <div class="field">
+      <label class="label" for="login-username">Username</label>
+      <input type="text" id="login-username" autocomplete="username" autofocus>
+    </div>
+    <div class="field">
+      <label class="label" for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="login-submit" style="width:100%;margin-top:6px">Sign in</button>
+  </div>
+</div>
+
+<!-- ============================= APP ============================= -->
+<div id="app-view" class="hidden">
+  <div class="topbar">
+    <div class="brand">
+      <img id="app-logo" class="hidden" alt="">
+      <span id="app-company">Network Log Server</span>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="search">Log search</button>
+      <button class="tab" data-tab="routers">Routers</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="btn btn-sm" id="open-settings" title="Settings and system status">Settings</button>
+    <button class="btn btn-sm" id="logout">Sign out</button>
+  </div>
+
+  <main>
+    <!-- ---------------------- SEARCH TAB ---------------------- -->
+    <section class="view" id="tab-search">
+      <div class="card search-panel">
+        <div class="presets">
+          <button class="preset active" data-preset="public">Trace a public address</button>
+          <button class="preset" data-preset="subscriber">Trace a subscriber</button>
+          <button class="preset" data-preset="private">Trace a private address</button>
+          <button class="preset" data-preset="all">All filters</button>
+        </div>
+
+        <div class="filter-grid" id="filters">
+          <div><label class="label" for="f-from">From</label>
+            <input type="datetime-local" id="f-from" step="1"></div>
+          <div><label class="label" for="f-to">To</label>
+            <input type="datetime-local" id="f-to" step="1"></div>
+
+          <div class="side-outside" data-group="public"><label class="label" for="f-public-ip">Public IP</label>
+            <input type="text" id="f-public-ip" placeholder="103.125.177.119"></div>
+          <div class="side-outside" data-group="public"><label class="label" for="f-public-port">Public port</label>
+            <input type="number" id="f-public-port" min="0" max="65535" placeholder="35420"></div>
+
+          <div data-group="subscriber"><label class="label" for="f-subscriber">Subscriber</label>
+            <input type="text" id="f-subscriber" placeholder="P2-musa"></div>
+
+          <div class="side-inside" data-group="private"><label class="label" for="f-private-ip">Private IP</label>
+            <input type="text" id="f-private-ip" placeholder="100.68.180.230"></div>
+          <div class="side-inside" data-group="private"><label class="label" for="f-private-port">Private port</label>
+            <input type="number" id="f-private-port" min="0" max="65535"></div>
+
+          <div data-group="dest"><label class="label" for="f-dest-ip">Destination IP</label>
+            <input type="text" id="f-dest-ip" placeholder="99.124.164.160"></div>
+          <div data-group="dest"><label class="label" for="f-dest-port">Destination port</label>
+            <input type="number" id="f-dest-port" min="0" max="65535" placeholder="22"></div>
+
+          <div data-group="other"><label class="label" for="f-protocol">Protocol</label>
+            <select id="f-protocol">
+              <option value="">Any</option><option>TCP</option><option>UDP</option>
+              <option>ICMP</option><option>GRE</option><option>ESP</option><option>SCTP</option>
+            </select></div>
+          <div data-group="other"><label class="label" for="f-router">Router IP</label>
+            <input type="text" id="f-router" placeholder="10.10.10.1"></div>
+          <div data-group="other"><label class="label" for="f-limit">Rows per page</label>
+            <select id="f-limit"><option>100</option><option>250</option>
+              <option>500</option><option>1000</option></select></div>
+        </div>
+
+        <div class="search-actions">
+          <button class="btn btn-primary" id="do-search">Search</button>
+          <button class="btn" id="clear-filters">Clear</button>
+          <label style="font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:5px">
+            <input type="checkbox" id="f-partial" style="width:auto"> Partial subscriber match
+          </label>
+          <div class="spacer"></div>
+          <span class="result-meta" id="result-meta"></span>
+          <button class="btn btn-sm" id="do-count" title="Count every matching row (slower)">Count all</button>
+          <button class="btn btn-sm" id="do-export" title="Download the rows shown as CSV">Export CSV</button>
+        </div>
+        <div id="search-msg" class="msg msg-error hidden" style="margin:12px 0 0"></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th class="sortable" data-sort="timestamp">Time</th>
+              <th class="sortable" data-sort="subscriber_id">Subscriber</th>
+              <th class="sortable" data-sort="private_ip">Private</th>
+              <th class="sortable" data-sort="public_ip">Public (NAT)</th>
+              <th class="sortable" data-sort="dest_ip">Destination</th>
+              <th class="sortable" data-sort="protocol">Proto</th>
+              <th class="sortable" data-sort="router_ip">Router</th>
+              <th>Session end</th>
+            </tr></thead>
+            <tbody id="results"></tbody>
+          </table>
+        </div>
+        <div id="results-empty" class="empty">
+          <strong>No search run yet</strong>
+          Pick a lookup above, set a time range and search.
+        </div>
+        <div class="pager hidden" id="pager">
+          <button class="btn btn-sm" id="page-prev">Previous</button>
+          <button class="btn btn-sm" id="page-next">Next</button>
+          <div class="spacer"></div>
+          <span class="result-meta" id="page-info"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------- ROUTERS TAB ---------------------- -->
+    <section class="view hidden" id="tab-routers">
+      <div class="section-head">
+        <h2>Authorised routers</h2>
+        <p>Logs are accepted only from the addresses listed here.</p>
+        <div class="spacer"></div>
+        <button class="btn btn-primary" id="add-router">Add router</button>
+      </div>
+      <div id="routers-msg" class="msg msg-error hidden"></div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>IP address</th><th>Status</th>
+              <th>Description</th><th style="width:1%"></th>
+            </tr></thead>
+            <tbody id="routers-body"></tbody>
+          </table>
+        </div>
+        <div id="routers-empty" class="empty">
+          <strong>No routers authorised yet</strong>
+          Until you add one, every incoming log is discarded.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="credit">Created by Ali Asad</div>
+</div>
+
+<div class="credit" id="login-credit">Created by Ali Asad</div>
+
+<!-- ============================ MODALS ============================ -->
+<div class="overlay hidden" id="router-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="router-modal-title">
+    <header id="router-modal-title">Add router</header>
+    <div class="body">
+      <div id="router-form-msg" class="msg msg-error hidden"></div>
+      <input type="hidden" id="r-id">
+      <div class="field"><label class="label" for="r-name">Name</label>
+        <input type="text" id="r-name" placeholder="LHE-BRAS-01" maxlength="64"></div>
+      <div class="field"><label class="label" for="r-ip">IP address</label>
+        <input type="text" id="r-ip" placeholder="10.10.10.1" maxlength="15">
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px">
+          The source address the router sends syslog from.</div></div>
+      <div class="field"><label class="label" for="r-desc">Description</label>
+        <input type="text" id="r-desc" placeholder="Lahore core, optional" maxlength="256"></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:7px;font-size:13px">
+        <input type="checkbox" id="r-enabled" checked style="width:auto"> Accept logs from this router
+      </label></div>
+    </div>
+    <footer>
+      <button class="btn" data-close="router-modal">Cancel</button>
+      <button class="btn btn-primary" id="save-router">Save router</button>
+    </footer>
+  </div>
+</div>
+
+<div class="overlay hidden" id="settings-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title"
+       style="max-width:640px">
+    <header id="settings-modal-title">Settings</header>
+    <div class="body">
+      <div id="settings-msg" class="msg msg-ok hidden"></div>
+
+      <span class="label">System status</span>
+      <div class="stat-grid" id="status-grid"
+           style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
+
+      <hr style="border:none;border-top:1px solid var(--line-soft);margin:20px 0">
+
+      <span class="label">Branding</span>
+      <div class="field"><label class="label" for="s-company">Company name</label>
+        <input type="text" id="s-company" maxlength="64"></div>
+      <div class="field"><label class="label" for="s-logo">Company logo</label>
+        <input type="file" id="s-logo" accept="image/png,image/jpeg,image/webp,image/gif"
+               style="font-size:12.5px">
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px">
+          PNG, JPEG, WebP or GIF up to 2 MB. Re-encoded to PNG on upload.</div></div>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <button class="btn btn-sm" id="save-branding">Save branding</button>
+        <button class="btn btn-sm btn-danger" id="remove-logo">Remove logo</button>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--line-soft);margin:20px 0">
+
+      <span class="label">Retention</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label class="label" for="s-hot">Recompress after (days)</label>
+          <input type="number" id="s-hot" min="1" max="3650"></div>
+        <div><label class="label" for="s-retain">Delete after (months)</label>
+          <input type="number" id="s-retain" min="1" max="120"></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);margin:6px 0 10px">
+        Older data stays searchable after recompression; it is just stored more tightly.</div>
+      <button class="btn btn-sm" id="save-retention">Save retention</button>
+
+      <hr style="border:none;border-top:1px solid var(--line-soft);margin:20px 0">
+
+      <span class="label">Change your password</span>
+      <div class="field"><label class="label" for="s-current">Current password</label>
+        <input type="password" id="s-current" autocomplete="current-password"></div>
+      <div class="field"><label class="label" for="s-new">New password</label>
+        <input type="password" id="s-new" autocomplete="new-password"></div>
+      <button class="btn btn-sm" id="save-password">Change password</button>
+    </div>
+    <footer><button class="btn" data-close="settings-modal">Close</button></footer>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>

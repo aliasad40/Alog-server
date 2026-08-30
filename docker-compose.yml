@@ -1,0 +1,103 @@
+# Network Log Server -- evaluation and development stack.
+#
+#   cp .env.example .env      # then replace every CHANGE_ME
+#   docker compose up -d
+#   open http://localhost:8080/
+#
+# For production on a dedicated host, use install.bash. The native install is
+# what the kernel tuning, systemd sandboxing and SO_REUSEPORT scaling target,
+# and it is the supported path.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_USER: netlog
+      CLICKHOUSE_PASSWORD: ${NLS_CLICKHOUSE_PASSWORD:?set NLS_CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DB: network_logs
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # noeviction is not optional: the queue must never be silently evicted.
+    command: >
+      redis-server
+      --requirepass ${NLS_REDIS_PASSWORD:?set NLS_REDIS_PASSWORD in .env}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${NLS_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  api:
+    build: { context: ., dockerfile: docker/Dockerfile }
+    environment: &env
+      NLS_SECRET_KEY: ${NLS_SECRET_KEY:?set NLS_SECRET_KEY in .env}
+      NLS_CLICKHOUSE_PASSWORD: ${NLS_CLICKHOUSE_PASSWORD}
+      NLS_REDIS_PASSWORD: ${NLS_REDIS_PASSWORD}
+      NLS_ADMIN_PASSWORD: ${NLS_ADMIN_PASSWORD:-}
+      NLS_CONFIG_DIR: /config
+      NLS_ROLE: api
+    volumes:
+      - ./docker/config:/config:ro
+      - app-data:/var/lib/network-log-server
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    ports:
+      - "8080:8088"
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      redis:      { condition: service_healthy }
+    restart: unless-stopped
+
+  receiver:
+    build: { context: ., dockerfile: docker/Dockerfile }
+    environment:
+      <<: *env
+      NLS_ROLE: receiver
+    volumes:
+      - ./docker/config:/config:ro
+      - app-data:/var/lib/network-log-server
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    ports:
+      - "5514:5514/udp"
+      - "5514:5514/tcp"
+    depends_on:
+      redis: { condition: service_healthy }
+      api:   { condition: service_started }
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., dockerfile: docker/Dockerfile }
+    environment:
+      <<: *env
+      NLS_ROLE: worker
+    volumes:
+      - ./docker/config:/config:ro
+      - app-data:/var/lib/network-log-server
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      redis:      { condition: service_healthy }
+      api:        { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  clickhouse-data:
+  redis-data:
+  app-data:

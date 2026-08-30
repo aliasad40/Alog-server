@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Network Log Server maintenance daily
+Documentation=file:/opt/network-log-server/docs/database.md
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+# Randomised so a fleet of these does not all hit storage at once.
+RandomizedDelaySec=1800
+Persistent=true
+Unit=network-log-server-maintenance.service
+
+[Install]
+WantedBy=timers.target

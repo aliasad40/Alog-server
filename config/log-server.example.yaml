@@ -1,0 +1,113 @@
+# Network Log Server -- example configuration.
+#
+# install.bash writes a tuned copy of this to
+# /etc/network-log-server/log-server.yaml. This file documents every option.
+#
+# Secrets never live here. They go in .env (0640, root:netlog).
+# Restart services after editing:
+#   systemctl restart network-log-server-{receiver,worker,api}
+
+log_level: INFO                  # DEBUG | INFO | WARNING | ERROR
+
+server:
+  bind: 127.0.0.1                # nginx is the only thing that should reach the API
+  port: 8088
+  workers: 2
+
+receiver:
+  udp_enabled: true
+  tcp_enabled: true
+  bind_address: 0.0.0.0
+  udp_port: 514
+  tcp_port: 514
+
+  # Receiver processes, each binding UDP/514 with SO_REUSEPORT. The kernel
+  # load-balances datagrams between them, so this scales close to linearly
+  # with cores. 0 = auto (cores / 2).
+  workers: 0
+
+  # Socket receive buffer. The single most important UDP tuning knob: too
+  # small and the kernel drops bursts before Python ever sees them. The kernel
+  # silently clamps this to net.core.rmem_max, so raise that too. Check what
+  # you actually got:
+  #   journalctl -u network-log-server-receiver | grep rcvbuf
+  so_rcvbuf: 16777216
+
+  max_datagram: 4096
+
+  # Push to Redis when either threshold is reached.
+  push_batch: 500
+  push_interval_ms: 200
+
+  # How often each receiver reloads the authorised-router set.
+  router_refresh_seconds: 15
+
+parser:
+  # Drop forward-chain logs that carry no NAT translation. ISP CGNAT
+  # deployments want this on: a log without a translation cannot answer the
+  # question this database exists to answer.
+  require_nat: true
+
+  # When the inbound interface is not a PPPoE/tunnel session, store the raw
+  # interface name as subscriber_id instead of leaving it empty.
+  subscriber_from_interface: false
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  # socket_path: /var/run/redis/redis-server.sock   # faster than TCP locally
+  queue_key: "nls:queue"
+
+  # Backpressure. Past this depth, new logs are dropped and counted rather
+  # than pushing Redis into OOM and losing the entire backlog.
+  max_queue_length: 5000000
+
+clickhouse:
+  host: 127.0.0.1
+  port: 8123
+  user: netlog
+  database: network_logs
+  table: nat_logs
+  secure: false
+
+  # Insert when either threshold is reached. Large batches are the whole point
+  # of the Redis buffer; ClickHouse hates small frequent inserts.
+  batch_size: 20000
+  batch_interval_ms: 1000
+  insert_timeout_seconds: 60
+
+  # Guard rails for the search UI.
+  max_execution_time: 30
+  max_result_rows: 10000
+
+retention:
+  # Days before a partition is rewritten at ZSTD(9). It stays fully searchable.
+  hot_days: 30
+
+  # Months of total retention before rows are dropped.
+  retention_months: 12
+
+  archive_enabled: true
+  archive_dir: /var/backups/network-log-server/archive
+
+  # Drop the partition from ClickHouse once exported. Turn this on only after
+  # you have successfully restored an archive at least once.
+  drop_after_archive: false
+
+auth:
+  session_hours: 12
+  cookie_name: nls_session
+
+  # Set true once HTTPS is configured, so session cookies stop being sent
+  # over plaintext.
+  cookie_secure: false
+
+  max_failed_logins: 5
+  lockout_seconds: 300
+
+paths:
+  data_dir: /var/lib/network-log-server
+  log_dir: /var/log/network-log-server
+  metadata_db: /var/lib/network-log-server/metadata.sqlite3
+  logo_dir: /var/lib/network-log-server/branding
