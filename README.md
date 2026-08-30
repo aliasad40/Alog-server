@@ -20,7 +20,7 @@ Clone → Install → Sign in → Add routers → Collect logs.
 Ubuntu 24.04 LTS:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/aliasad40/Alog-server
 cd network-log-server
 sudo bash install.bash
 ```
