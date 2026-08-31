@@ -21,7 +21,7 @@ Ubuntu 24.04 LTS:
 
 ```bash
 git clone https://github.com/aliasad40/Alog-server
-cd network-log-server
+cd Alog-server
 sudo bash install.bash
 ```
 
