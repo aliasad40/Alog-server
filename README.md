@@ -21,7 +21,9 @@ Ubuntu 24.04 LTS:
 
 ```bash
 git clone https://github.com/aliasad40/Alog-server
+
 cd Alog-server
+
 sudo bash install.bash
 ```
 
@@ -34,29 +36,29 @@ policy — then health-checks all of it.
 
 ## What it does
 
-- **Receives** syslog over UDP and TCP on port 514
-- **Authorises** by source address — unknown senders are dropped after one hash
-  lookup, before the parser ever runs
-- **Parses** MikroTik firewall/NAT logs into 11 normalised columns and discards
-  everything else
-- **Buffers** through Redis so ClickHouse can be down, slow or restarting
-  without losing logs
-- **Stores** in ClickHouse, partitioned monthly, compressed per column
-- **Searches** on any field with a time range, from a two-tab web interface
-- **Archives** closed months automatically, recompresses old partitions in place
-- **Reports** ingest rate, queue depth, parse success, drops and storage
+* **Receives** syslog over UDP and TCP on port 514
+* **Authorises** by source address — unknown senders are dropped after one hash
+lookup, before the parser ever runs
+* **Parses** MikroTik firewall/NAT logs into 11 normalised columns and discards
+everything else
+* **Buffers** through Redis so ClickHouse can be down, slow or restarting
+without losing logs
+* **Stores** in ClickHouse, partitioned monthly, compressed per column
+* **Searches** on any field with a time range, from a two-tab web interface
+* **Archives** closed months automatically, recompresses old partitions in place
+* **Reports** ingest rate, queue depth, parse success, drops and storage
 
 ## Measured performance
 
 On a **single vCPU** Xeon @ 2.80 GHz — deliberately small hardware:
 
-| | Result |
-|---|---|
-| Parser, one core | **170,428 logs/sec** |
-| Non-matching line rejection | **3,458,083 lines/sec** |
-| End-to-end ingest, one receiver process | **40,000 logs/sec at 100% delivery, 100% parse** |
+||Result|
+|-|-|
+|Parser, one core|**170,428 logs/sec**|
+|Non-matching line rejection|**3,458,083 lines/sec**|
+|End-to-end ingest, one receiver process|**40,000 logs/sec at 100% delivery, 100% parse**|
 
-The receiver scales across cores with `SO_REUSEPORT`, so 8 dedicated cores
+The receiver scales across cores with `SO\_REUSEPORT`, so 8 dedicated cores
 should carry well past 100,000 logs/sec. Measure it on your own hardware with
 `scripts/loadtest.py` before promising it to anyone. Full methodology and the
 overload failure mode: [`docs/performance.md`](docs/performance.md).
@@ -92,32 +94,32 @@ is a failed lawful-intercept response.
 ```sql
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (public_ip, public_port, timestamp)
+ORDER BY (public\_ip, public\_port, timestamp)
 TTL timestamp + INTERVAL 30 DAY RECOMPRESS CODEC(ZSTD(9)),
     timestamp + INTERVAL 12 MONTH DELETE
 ```
 
-- `public_ip` leads the sorting key because the reverse CGNAT lookup is the
-  query that matters, and a NAT pool of a few /24s compresses to nearly nothing
-- `session_start_time` is an `ALIAS` of `timestamp` — searchable, zero bytes
-- `DoubleDelta` on timestamps, `LowCardinality` on subscriber and protocol,
-  `UInt16` ports, `IPv4` addresses
-- Bloom filter skip indexes for subscriber, private IP and destination IP
+* `public\_ip` leads the sorting key because the reverse CGNAT lookup is the
+query that matters, and a NAT pool of a few /24s compresses to nearly nothing
+* `session\_start\_time` is an `ALIAS` of `timestamp` — searchable, zero bytes
+* `DoubleDelta` on timestamps, `LowCardinality` on subscriber and protocol,
+`UInt16` ports, `IPv4` addresses
+* Bloom filter skip indexes for subscriber, private IP and destination IP
 
 Details and reasoning: [`docs/database.md`](docs/database.md).
 
 ## Documentation
 
-| Document | Covers |
-|---|---|
-| [installation.md](docs/installation.md) | Requirements, install, HTTPS, upgrade, uninstall |
-| [mikrotik.md](docs/mikrotik.md) | RouterOS configuration, volume planning |
-| [architecture.md](docs/architecture.md) | Components, log-loss guarantee, failure behaviour |
-| [parser.md](docs/parser.md) | Supported formats, adding new ones |
-| [database.md](docs/database.md) | Schema, retention, archiving, useful queries |
-| [performance.md](docs/performance.md) | Benchmarks, load testing, tuning |
-| [api.md](docs/api.md) | REST reference |
-| [troubleshooting.md](docs/troubleshooting.md) | Symptom-first diagnosis |
+|Document|Covers|
+|-|-|
+|[installation.md](docs/installation.md)|Requirements, install, HTTPS, upgrade, uninstall|
+|[mikrotik.md](docs/mikrotik.md)|RouterOS configuration, volume planning|
+|[architecture.md](docs/architecture.md)|Components, log-loss guarantee, failure behaviour|
+|[parser.md](docs/parser.md)|Supported formats, adding new ones|
+|[database.md](docs/database.md)|Schema, retention, archiving, useful queries|
+|[performance.md](docs/performance.md)|Benchmarks, load testing, tuning|
+|[api.md](docs/api.md)|REST reference|
+|[troubleshooting.md](docs/troubleshooting.md)|Symptom-first diagnosis|
 
 ## Configuration
 
@@ -130,15 +132,15 @@ The knobs you are most likely to touch:
 
 ```yaml
 receiver:
-  workers: 4              # SO_REUSEPORT processes; raise for more throughput
-  so_rcvbuf: 16777216     # raise net.core.rmem_max to match
+  workers: 4              # SO\_REUSEPORT processes; raise for more throughput
+  so\_rcvbuf: 16777216     # raise net.core.rmem\_max to match
 parser:
-  require_nat: true       # drop forward logs with no NAT translation
+  require\_nat: true       # drop forward logs with no NAT translation
 clickhouse:
-  batch_size: 20000       # bigger batches, fewer parts
+  batch\_size: 20000       # bigger batches, fewer parts
 retention:
-  hot_days: 30            # recompress after this
-  retention_months: 12    # delete after this
+  hot\_days: 30            # recompress after this
+  retention\_months: 12    # delete after this
 ```
 
 ## Administration
@@ -158,38 +160,38 @@ scripts/loadtest.py --host <ip> --rate 50000 --duration 60
 
 ## Security
 
-- Argon2id password hashing (64 MiB, 3 iterations) — never plaintext
-- Sessions in `HttpOnly`, `SameSite=Strict` cookies, plus an `Origin` check on
-  mutations
-- Login throttling per username+IP, plus rate limiting at nginx
-- Every search value bound as a ClickHouse parameter; `ORDER BY` restricted to
-  an allow-list
-- Uploaded logos decoded and re-encoded to PNG — what is served back is
-  something Pillow generated, not something a user supplied. SVG is refused
-- Services run as unprivileged `netlog` under a strict systemd sandbox; the
-  receiver binds port 514 via `CAP_NET_BIND_SERVICE`, not root
-- Secrets generated at install, never committed, never defaulted
-- ClickHouse and Redis bind loopback only
+* Argon2id password hashing (64 MiB, 3 iterations) — never plaintext
+* Sessions in `HttpOnly`, `SameSite=Strict` cookies, plus an `Origin` check on
+mutations
+* Login throttling per username+IP, plus rate limiting at nginx
+* Every search value bound as a ClickHouse parameter; `ORDER BY` restricted to
+an allow-list
+* Uploaded logos decoded and re-encoded to PNG — what is served back is
+something Pillow generated, not something a user supplied. SVG is refused
+* Services run as unprivileged `netlog` under a strict systemd sandbox; the
+receiver binds port 514 via `CAP\_NET\_BIND\_SERVICE`, not root
+* Secrets generated at install, never committed, never defaulted
+* ClickHouse and Redis bind loopback only
 
 ## Development
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv \&\& source .venv/bin/activate
 pip install -r backend/requirements-dev.txt
 
 redis-server --port 6399 --save '' --appendonly no --daemonize yes
 pytest -q                                  # 73 tests
-python3 tests/parser/bench_parser.py       # parser throughput
+python3 tests/parser/bench\_parser.py       # parser throughput
 ```
 
 Tests are grouped by what they protect:
 
-- `tests/parser/` — every supported log shape, plus garbage that must not crash
-  the receiver
-- `tests/integration/` — real Redis: authorisation, the claim/recover cycle,
-  backpressure, real UDP datagrams
-- `tests/api/` — auth, lockout, CSRF, router CRUD, and query-injection attempts
-  asserted against the exact generated SQL
+* `tests/parser/` — every supported log shape, plus garbage that must not crash
+the receiver
+* `tests/integration/` — real Redis: authorisation, the claim/recover cycle,
+backpressure, real UDP datagrams
+* `tests/api/` — auth, lockout, CSRF, router CRUD, and query-injection attempts
+asserted against the exact generated SQL
 
 ## Project layout
 
@@ -215,6 +217,7 @@ entirely and means this installs on air-gapped ISP networks.
 
 MIT. See [LICENSE](LICENSE).
 
----
+\---
 
 Created by Ali Asad
+
