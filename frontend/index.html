@@ -41,6 +41,8 @@
     <div class="tabs">
       <button class="tab active" data-tab="search">Log search</button>
       <button class="tab" data-tab="routers">Routers</button>
+      <button class="tab" data-tab="services">Services</button>
+      <button class="tab" data-tab="logs">Diagnostics</button>
     </div>
     <div class="spacer"></div>
     <span class="who" id="who"></span>
@@ -103,6 +105,7 @@
           </label>
           <div class="spacer"></div>
           <span class="result-meta" id="result-meta"></span>
+          <span class="tz-badge" id="tz-badge" title="Timestamps are shown in this timezone. Change it in Settings."></span>
           <button class="btn btn-sm" id="do-count" title="Count every matching row (slower)">Count all</button>
           <button class="btn btn-sm" id="do-export" title="Download the rows shown as CSV">Export CSV</button>
         </div>
@@ -163,6 +166,63 @@
         </div>
       </div>
     </section>
+
+    <!-- ---------------------- SERVICES TAB ---------------------- -->
+    <section class="view hidden" id="tab-services">
+      <div class="section-head">
+        <h2>Services</h2>
+        <p>Start, stop and restart the components this server depends on.</p>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" id="refresh-services">Refresh</button>
+      </div>
+      <div id="services-msg" class="msg msg-error hidden"></div>
+      <div class="service-grid" id="service-grid"></div>
+    </section>
+
+    <!-- -------------------- DIAGNOSTICS TAB --------------------- -->
+    <section class="view hidden" id="tab-logs">
+      <div class="section-head">
+        <h2>Diagnostics</h2>
+        <p>Recent output from each service. Start here when something is wrong.</p>
+        <div class="spacer"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+          <input type="checkbox" id="log-autorefresh" style="width:auto"> Auto-refresh
+        </label>
+        <button class="btn btn-sm" id="refresh-logs">Refresh</button>
+      </div>
+      <div class="card" style="padding:13px 15px;margin-bottom:12px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <div style="min-width:180px">
+            <label class="label" for="log-service">Service</label>
+            <select id="log-service"></select>
+          </div>
+          <div style="min-width:140px">
+            <label class="label" for="log-level">Severity</label>
+            <select id="log-level">
+              <option value="">All</option>
+              <option value="ERROR">Errors only</option>
+              <option value="WARNING">Warnings and above</option>
+              <option value="INFO">Info and above</option>
+            </select>
+          </div>
+          <div style="min-width:120px">
+            <label class="label" for="log-lines">Lines</label>
+            <select id="log-lines">
+              <option>200</option><option>500</option><option>1000</option><option>2000</option>
+            </select>
+          </div>
+          <div class="spacer" style="flex:1"></div>
+          <span class="result-meta" id="log-path"></span>
+        </div>
+      </div>
+      <div class="card">
+        <pre class="log-view" id="log-output">Select a service above.</pre>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:10px">
+        Deeper detail, including ClickHouse and Redis themselves, is in the system
+        journal: <code>journalctl -u network-log-server-worker -n 100</code>
+      </p>
+    </section>
   </main>
 
   <div class="credit">Created by Ali Asad</div>
@@ -221,6 +281,19 @@
         <button class="btn btn-sm" id="save-branding">Save branding</button>
         <button class="btn btn-sm btn-danger" id="remove-logo">Remove logo</button>
       </div>
+
+      <hr style="border:none;border-top:1px solid var(--line-soft);margin:20px 0">
+
+      <span class="label">Time and display</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label class="label" for="s-timezone">Display timezone</label>
+          <input type="text" id="s-timezone" list="tz-list" placeholder="Asia/Karachi">
+          <datalist id="tz-list"></datalist></div>
+        <div><label class="label" for="s-window">Logs shown on open (minutes)</label>
+          <input type="number" id="s-window" min="1" max="1440"></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);margin:6px 0 10px" id="tz-preview"></div>
+      <button class="btn btn-sm" id="save-display">Save display settings</button>
 
       <hr style="border:none;border-top:1px solid var(--line-soft);margin:20px 0">
 

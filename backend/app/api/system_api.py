@@ -9,9 +9,12 @@ import time
 
 import psutil
 from fastapi import APIRouter, HTTPException, Request, status
+from pathlib import Path
+from pydantic import BaseModel
 from fastapi.concurrency import run_in_threadpool
 
 from .. import metrics as M
+from ..services import control
 from ..services.receiver import ROUTER_SET_KEY
 from .deps import CurrentUser, SameOrigin, get_cfg, get_ch, get_meta, get_redis
 
@@ -160,3 +163,103 @@ async def reset_metrics(request: Request, _user: str = CurrentUser, _: None = Sa
     except Exception:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Redis did not answer.")
     return {"status": "Counters reset"}
+
+
+# --------------------------------------------------------------- services --
+
+class ServiceAction(BaseModel):
+    action: str
+
+
+@router.get("/system/services")
+async def list_services(request: Request, _user: str = CurrentUser):
+    """Status of every controllable service. Needs no privilege to read."""
+    return await run_in_threadpool(control.status_all)
+
+
+@router.post("/system/services/{key}")
+async def control_service(key: str, payload: ServiceAction, request: Request,
+                          _user: str = CurrentUser, _: None = SameOrigin):
+    """Apply an action to one service.
+
+    `key` is looked up in a fixed allow-list before anything is executed, so a
+    caller cannot name an arbitrary unit. See app/services/control.py for the
+    full security model.
+    """
+    try:
+        result = await run_in_threadpool(control.control, key, payload.action)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    if not result["ok"]:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, result["detail"])
+    log.warning("service %s %s by %s", key, payload.action, _user)
+    return result
+
+
+# ------------------------------------------------------------------- logs --
+
+LOG_FILES = {
+    "receiver": ("receiver.log", "Syslog receiver"),
+    "worker": ("worker.log", "Database writer"),
+    "api": ("api.log", "Web interface"),
+    "maintenance": ("maintenance.log", "Archiving and maintenance"),
+    "admin": ("admin.log", "Command line"),
+}
+
+LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+@router.get("/system/logs")
+async def read_logs(request: Request, service: str = "worker", lines: int = 200,
+                    level: str = "", _user: str = CurrentUser):
+    """Tail an application log file.
+
+    The filename comes from a fixed map, never from the query string, so no
+    amount of `../` in `service` can reach another file.
+    """
+    entry = LOG_FILES.get(service)
+    if entry is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Unknown log: {service!r}")
+    filename, label = entry
+    lines = max(10, min(lines, 2000))
+    level = level.upper() if level.upper() in LEVELS else ""
+
+    path = Path(get_cfg(request).paths.log_dir) / filename
+    if not path.is_file():
+        return {"service": service, "label": label, "path": str(path),
+                "lines": [], "detail": "No log file yet — the service has not written one."}
+
+    def _tail() -> list:
+        # Read the tail only. These files rotate at 32 MiB and reading a whole
+        # one into memory to show the last 200 lines would be wasteful.
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            block = min(size, 256 * 1024)
+            fh.seek(size - block)
+            chunk = fh.read(block).decode("utf-8", "replace")
+        found = chunk.splitlines()
+        if level:
+            found = [ln for ln in found if f" {level} " in ln or f" {level}    " in ln]
+        return found[-lines:]
+
+    try:
+        content = await run_in_threadpool(_tail)
+    except OSError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            f"Could not read the log file: {exc}")
+
+    return {"service": service, "label": label, "path": str(path),
+            "lines": content, "detail": ""}
+
+
+@router.get("/system/logs/available")
+async def available_logs(request: Request, _user: str = CurrentUser):
+    log_dir = Path(get_cfg(request).paths.log_dir)
+    out = []
+    for key, (filename, label) in LOG_FILES.items():
+        path = log_dir / filename
+        out.append({"key": key, "label": label, "exists": path.is_file(),
+                    "size": path.stat().st_size if path.is_file() else 0})
+    return out

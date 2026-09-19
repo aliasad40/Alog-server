@@ -464,3 +464,86 @@ tbody tr:hover { background: var(--sunken); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---- services ---------------------------------------------------------- */
+
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.service {
+  padding: 15px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.service-head { display: flex; align-items: center; gap: 9px; }
+.service-head .name { font-weight: 650; font-size: 14px; }
+.service-head .spacer { flex: 1; }
+
+.service .unit {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.service .desc { font-size: 12.5px; color: var(--muted); }
+
+.service .impact {
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  border-left: 2px solid var(--line);
+}
+
+.state {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+.state-active   { background: #e6f4ea; color: var(--ok); }
+.state-inactive { background: var(--sunken); color: var(--muted); }
+.state-failed   { background: var(--alert-bg); color: var(--alert); }
+.state-activating { background: #fdf3e0; color: var(--warn); }
+
+.service-actions { display: flex; gap: 6px; margin-top: 2px; }
+
+.tz-badge {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* ---- diagnostics ------------------------------------------------------- */
+
+.log-view {
+  margin: 0;
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 62vh;
+  overflow-y: auto;
+  color: var(--ink);
+}
+
+/* Severity is colour-coded so an ERROR is findable by scanning, not reading. */
+.log-line { display: block; }
+.log-error   { color: var(--alert); font-weight: 550; }
+.log-warning { color: var(--warn); }
+.log-debug   { color: var(--muted); }

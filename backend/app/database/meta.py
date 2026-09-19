@@ -66,6 +66,11 @@ DEFAULT_SETTINGS = {
     "logo_filename": "",
     "hot_days": "30",
     "retention_months": "12",
+    # IANA name. Controls how timestamps are shown and how the operator's
+    # search input is interpreted -- see app/timezones.py.
+    "display_timezone": "UTC",
+    # Minutes of history the search page loads automatically on open.
+    "default_window_minutes": "15",
 }
 
 _local = threading.local()

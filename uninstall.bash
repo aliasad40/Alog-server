@@ -68,6 +68,9 @@ echo "==> Removing nginx site"
 rm -f "/etc/nginx/sites-enabled/${APP_NAME}" "/etc/nginx/sites-available/${APP_NAME}"
 nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
 
+echo "==> Removing sudoers rule"
+rm -f /etc/sudoers.d/network-log-server
+
 echo "==> Removing application files"
 rm -rf "$INSTALL_DIR" "${INSTALL_DIR}.rollback" /usr/local/bin/nls-admin
 

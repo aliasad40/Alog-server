@@ -12,6 +12,7 @@ from fastapi import (APIRouter, File, HTTPException, Request, UploadFile,
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from .. import timezones as tzutil
 from .deps import CurrentUser, SameOrigin, get_cfg, get_ch, get_meta
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,11 @@ class Branding(BaseModel):
 class Retention(BaseModel):
     hot_days: int = Field(ge=1, le=3650)
     retention_months: int = Field(ge=1, le=120)
+
+
+class Display(BaseModel):
+    display_timezone: str = Field(min_length=1, max_length=64)
+    default_window_minutes: int = Field(15, ge=1, le=1440)
 
 
 @router.get("/branding")
@@ -163,3 +169,49 @@ async def set_retention(payload: Retention, request: Request,
     meta.set_setting("retention_months", str(payload.retention_months))
     log.info("retention set: hot=%dd retain=%dmo", payload.hot_days, payload.retention_months)
     return {"status": "Retention updated"}
+
+
+@router.get("/display")
+async def get_display(request: Request, _user: str = CurrentUser):
+    meta = get_meta(request)
+    name = meta.get_setting("display_timezone", "UTC")
+    tz = tzutil.resolve(name)
+    try:
+        window = int(meta.get_setting("default_window_minutes", "15"))
+    except ValueError:
+        window = 15
+    return {
+        "display_timezone": str(tz),
+        "offset": tzutil.offset_label(tz),
+        "server_time": tzutil.now_in(tz).strftime("%Y-%m-%d %H:%M:%S"),
+        "default_window_minutes": window,
+        "available": tzutil.COMMON_TIMEZONES,
+    }
+
+
+@router.put("/display")
+async def set_display(payload: Display, request: Request,
+                      _user: str = CurrentUser, _: None = SameOrigin):
+    """Change the display timezone.
+
+    Validated here rather than at read time so a typo is rejected while the
+    operator is still looking at the form, instead of silently falling back to
+    UTC hours later during an investigation.
+    """
+    name = payload.display_timezone.strip()
+    if not tzutil.is_valid(name):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{name!r} is not a known timezone. Use an IANA name such as "
+            "Asia/Karachi or Europe/London.")
+    meta = get_meta(request)
+    meta.set_setting("display_timezone", name)
+    meta.set_setting("default_window_minutes", str(payload.default_window_minutes))
+    tz = tzutil.resolve(name)
+    log.info("display timezone set to %s (%s)", name, tzutil.offset_label(tz))
+    return {
+        "status": "Display settings updated",
+        "display_timezone": name,
+        "offset": tzutil.offset_label(tz),
+        "server_time": tzutil.now_in(tz).strftime("%Y-%m-%d %H:%M:%S"),
+    }

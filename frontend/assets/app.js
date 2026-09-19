@@ -26,6 +26,8 @@ const state = {
   descending: true,
   lastRows: [],
   preset: 'public',
+  timezone: 'UTC',
+  logTimer: null,
 };
 
 /* ---------------------------------------------------------------- http -- */
@@ -90,18 +92,26 @@ function showApp(user) {
   $('app-view').classList.remove('hidden');
   $('who').textContent = user.username;
   setDefaultTimeRange();
+  loadDisplaySettings().then(loadLatest);
   if (user.must_change_password) {
     openModal('settings-modal');
     flash('settings-msg', 'You are still using the password from installation. Change it now.', 'warn');
   }
 }
 
+const TABS = ['search', 'routers', 'services', 'logs'];
+
 function switchTab(name) {
   for (const tab of document.querySelectorAll('.tab'))
     tab.classList.toggle('active', tab.dataset.tab === name);
-  $('tab-search').classList.toggle('hidden', name !== 'search');
-  $('tab-routers').classList.toggle('hidden', name !== 'routers');
+  for (const t of TABS) $(`tab-${t}`).classList.toggle('hidden', t !== name);
+
   if (name === 'routers') loadRouters();
+  if (name === 'services') loadServices();
+  if (name === 'logs') loadLogs();
+
+  // Auto-refresh is only useful on the tab you are looking at.
+  if (name !== 'logs') stopLogRefresh();
 }
 
 const openModal  = (id) => $(id).classList.remove('hidden');
@@ -465,6 +475,195 @@ async function saveBranding() {
   } catch (err) { flash('settings-msg', err.message); }
 }
 
+
+/* ---------------------------------------------------- latest / timezone -- */
+
+async function loadDisplaySettings() {
+  try {
+    const d = await api('/api/settings/display');
+    state.timezone = d.display_timezone;
+    $('tz-badge').textContent = `${d.display_timezone} ${d.offset}`;
+    $('s-timezone').value = d.display_timezone;
+    $('s-window').value = d.default_window_minutes;
+    const list = $('tz-list');
+    list.textContent = '';
+    for (const name of d.available) list.appendChild(el('option')).value = name;
+    $('tz-preview').textContent = `Server time in ${d.display_timezone}: ${d.server_time}`;
+  } catch (_) { /* the search page still works on UTC */ }
+}
+
+/* Loads recent logs with no filters when the page opens.
+
+   This calls /api/search/latest rather than an empty /api/search on purpose:
+   the endpoint starts with a narrow window and only widens it if nothing is
+   found, so opening the page never triggers a full-range scan. */
+async function loadLatest() {
+  $('result-meta').textContent = 'Loading recent logs…';
+  try {
+    const data = await api('/api/search/latest', { method: 'POST', body: {} });
+    state.lastRows = data.rows;
+    state.offset = 0;
+    renderRows(data.rows);
+    if (data.rows.length) {
+      const window = data.window_minutes >= 1440
+        ? `${Math.round(data.window_minutes / 1440)}d`
+        : `${data.window_minutes}m`;
+      $('result-meta').textContent =
+        `${data.rows.length} most recent · last ${window} · ${data.elapsed_ms} ms`;
+      $('pager').classList.add('hidden');
+    } else {
+      $('result-meta').textContent = '';
+      showNoRecentLogs();
+    }
+  } catch (err) {
+    $('result-meta').textContent = '';
+    flash('search-msg', err.message);
+  }
+}
+
+function showNoRecentLogs() {
+  const box = $('results-empty');
+  box.classList.remove('hidden');
+  box.textContent = '';
+  box.appendChild(el('strong', '', 'No logs received recently'));
+  box.appendChild(document.createTextNode(
+    'Nothing has arrived in the last week. Check that a router is authorised under ' +
+    'Routers, that it is configured to send, and look at Diagnostics for parser errors.'));
+}
+
+/* ------------------------------------------------------------- services -- */
+
+const STATE_LABEL = {
+  active: 'Running', inactive: 'Stopped', failed: 'Failed',
+  activating: 'Starting', deactivating: 'Stopping', unknown: 'Unknown',
+};
+
+async function loadServices() {
+  clearFlash('services-msg');
+  const grid = $('service-grid');
+  try {
+    const services = await api('/api/system/services');
+    grid.textContent = '';
+    for (const svc of services) grid.appendChild(serviceCard(svc));
+  } catch (err) {
+    grid.textContent = '';
+    flash('services-msg', err.message);
+  }
+}
+
+function serviceCard(svc) {
+  const card = el('div', 'card service');
+
+  const head = el('div', 'service-head');
+  head.appendChild(el('span', 'name', svc.label));
+  head.appendChild(el('span', 'spacer'));
+  const stateClass = ['active', 'inactive', 'failed', 'activating'].includes(svc.active)
+    ? `state state-${svc.active}` : 'state state-inactive';
+  head.appendChild(el('span', stateClass, STATE_LABEL[svc.active] || svc.active));
+  card.appendChild(head);
+
+  card.appendChild(el('div', 'unit', svc.unit + (svc.pid ? `  ·  pid ${svc.pid}` : '')));
+  card.appendChild(el('div', 'desc', svc.description));
+
+  const impact = el('div', 'impact');
+  impact.appendChild(el('strong', '', 'Restarting this: '));
+  impact.appendChild(document.createTextNode(svc.impact));
+  card.appendChild(impact);
+
+  const actions = el('div', 'service-actions');
+  const restart = el('button', 'btn btn-sm btn-primary', 'Restart');
+  restart.onclick = () => actOnService(svc, 'restart');
+  actions.appendChild(restart);
+
+  if (svc.active === 'active') {
+    const stop = el('button', 'btn btn-sm btn-danger', 'Stop');
+    stop.onclick = () => actOnService(svc, 'stop');
+    actions.appendChild(stop);
+  } else {
+    const start = el('button', 'btn btn-sm', 'Start');
+    start.onclick = () => actOnService(svc, 'start');
+    actions.appendChild(start);
+  }
+  card.appendChild(actions);
+  return card;
+}
+
+async function actOnService(svc, action) {
+  const verb = action[0].toUpperCase() + action.slice(1);
+  if (!confirm(`${verb} ${svc.label}?\n\n${svc.impact}`)) return;
+  clearFlash('services-msg');
+  try {
+    const result = await api(`/api/system/services/${svc.key}`,
+                             { method: 'POST', body: { action } });
+    flash('services-msg', result.detail, 'ok');
+    // Restarting the API or nginx kills the connection serving this page, so
+    // give it a moment to come back before asking it anything else.
+    setTimeout(loadServices, svc.self_hosting ? 4000 : 1200);
+  } catch (err) {
+    flash('services-msg', err.message);
+  }
+}
+
+/* ---------------------------------------------------------- diagnostics -- */
+
+async function populateLogServices() {
+  const select = $('log-service');
+  if (select.options.length) return;
+  try {
+    const available = await api('/api/system/logs/available');
+    for (const entry of available) {
+      const option = el('option', '', entry.label + (entry.exists ? '' : ' (empty)'));
+      option.value = entry.key;
+      select.appendChild(option);
+    }
+    select.value = 'worker';
+  } catch (_) { /* handled by loadLogs */ }
+}
+
+async function loadLogs() {
+  await populateLogServices();
+  const params = new URLSearchParams({
+    service: $('log-service').value || 'worker',
+    lines: $('log-lines').value || '200',
+    level: $('log-level').value || '',
+  });
+  const output = $('log-output');
+  try {
+    const data = await api(`/api/system/logs?${params}`);
+    $('log-path').textContent = data.path;
+    output.textContent = '';
+    if (!data.lines.length) {
+      output.textContent = data.detail || 'Nothing matching in this log.';
+      return;
+    }
+    for (const line of data.lines) {
+      const span = el('span', 'log-line ' + severityClass(line), line);
+      output.appendChild(span);
+      output.appendChild(document.createTextNode('\n'));
+    }
+    output.scrollTop = output.scrollHeight;   // newest first in view
+  } catch (err) {
+    output.textContent = `Could not read the log: ${err.message}`;
+  }
+}
+
+function severityClass(line) {
+  if (line.includes(' ERROR ') || line.includes(' CRITICAL ')) return 'log-error';
+  if (line.includes(' WARNING ')) return 'log-warning';
+  if (line.includes(' DEBUG ')) return 'log-debug';
+  return '';
+}
+
+function startLogRefresh() {
+  stopLogRefresh();
+  state.logTimer = setInterval(loadLogs, 5000);
+}
+function stopLogRefresh() {
+  if (state.logTimer) { clearInterval(state.logTimer); state.logTimer = null; }
+  const box = $('log-autorefresh');
+  if (box) box.checked = false;
+}
+
 /* ------------------------------------------------------------- wiring -- */
 
 function bind() {
@@ -491,10 +690,8 @@ function bind() {
     $('f-protocol').value = '';
     $('f-partial').checked = false;
     setDefaultTimeRange();
-    $('results').textContent = '';
-    $('result-meta').textContent = '';
     $('pager').classList.add('hidden');
-    $('results-empty').classList.remove('hidden');
+    loadLatest();          // back to the default view rather than a blank table
   };
 
   for (const input of document.querySelectorAll('#filters input'))
@@ -520,10 +717,42 @@ function bind() {
     };
   }
 
+  $('refresh-services').onclick = loadServices;
+
+  $('refresh-logs').onclick = loadLogs;
+  for (const id of ['log-service', 'log-level', 'log-lines'])
+    $(id).onchange = loadLogs;
+  $('log-autorefresh').onchange = (e) => {
+    if (e.target.checked) startLogRefresh(); else stopLogRefresh();
+  };
+
+  $('save-display').onclick = async () => {
+    clearFlash('settings-msg');
+    try {
+      const r = await api('/api/settings/display', {
+        method: 'PUT',
+        body: {
+          display_timezone: $('s-timezone').value.trim(),
+          default_window_minutes: Number($('s-window').value) || 15,
+        },
+      });
+      state.timezone = r.display_timezone;
+      $('tz-badge').textContent = `${r.display_timezone} ${r.offset}`;
+      $('tz-preview').textContent = `Server time in ${r.display_timezone}: ${r.server_time}`;
+      flash('settings-msg', 'Display settings updated.', 'ok');
+      // Timestamps already on screen are in the old zone; reload so what the
+      // operator sees always matches the badge.
+      setDefaultTimeRange();
+      loadLatest();
+    } catch (err) { flash('settings-msg', err.message); }
+  };
+
   $('add-router').onclick = () => openRouterModal(null);
   $('save-router').onclick = saveRouter;
 
-  $('open-settings').onclick = () => { openModal('settings-modal'); loadStatus(); loadRetention(); };
+  $('open-settings').onclick = () => {
+    openModal('settings-modal'); loadStatus(); loadRetention(); loadDisplaySettings();
+  };
   $('save-branding').onclick = saveBranding;
   $('remove-logo').onclick = async () => {
     try { await api('/api/settings/logo', { method: 'DELETE' }); await loadBranding();

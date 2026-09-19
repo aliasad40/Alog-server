@@ -18,7 +18,7 @@ import os
 import signal
 import socket
 import time
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from typing import List, Optional
 
 from ..config import Config, get_config
@@ -132,7 +132,10 @@ class BatchWorker:
                 bad += 1
                 continue
             # msgpack gave us an epoch int; ClickHouse wants a datetime.
-            row[0] = datetime.fromtimestamp(row[0])
+            # UTC-aware on purpose: a naive value would be interpreted in the
+            # ClickHouse server's timezone, so the stored instant would depend
+            # on a setting nobody in this application controls.
+            row[0] = datetime.fromtimestamp(row[0], tz=dt_timezone.utc)
             rows.append(row)
         return rows, bad
 

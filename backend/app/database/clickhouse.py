@@ -252,17 +252,21 @@ class ClickHouseService:
 
 
 def render_schema(path: Path, database: str, hot_days: int, retention_months: int) -> List[str]:
-    """Load schema.sql, substitute placeholders, split into statements."""
+    """Load schema.sql, substitute placeholders, split into statements.
+
+    Comments are stripped *before* splitting on ';'. Doing it the other way
+    round means a semicolon inside a comment -- "DateTime stores epoch
+    seconds; the timezone is metadata" -- splits a statement in half and the
+    tail of the comment leaks into the next one. That produces a syntax error
+    from `init-db` whose cause is nowhere near where it appears.
+    """
     text = (
         path.read_text()
         .replace("{{DATABASE}}", database)
         .replace("{{HOT_DAYS}}", str(int(hot_days)))
         .replace("{{RETENTION_MONTHS}}", str(int(retention_months)))
     )
-    statements = []
-    for chunk in text.split(";"):
-        lines = [ln for ln in chunk.splitlines() if not ln.strip().startswith("--")]
-        stmt = "\n".join(lines).strip()
-        if stmt:
-            statements.append(stmt)
-    return statements
+    code = "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("--")
+    )
+    return [stmt.strip() for stmt in code.split(";") if stmt.strip()]

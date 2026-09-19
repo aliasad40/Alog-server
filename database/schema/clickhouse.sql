@@ -31,6 +31,13 @@
 --   ZSTD on everything else, LowCardinality dictionaries for the two columns
 --   with repeated string values.
 --
+-- Timestamps are pinned to UTC
+--   DateTime stores epoch seconds; the timezone is only metadata for parsing
+--   and formatting. Pinning it to UTC means the stored instant never depends
+--   on the ClickHouse server's timezone setting, and clickhouse-connect
+--   returns consistently UTC-aware values. Display conversion to the
+--   operator's timezone happens in the application -- see app/timezones.py.
+--
 -- TTL ... RECOMPRESS is how "archiving" works in place
 --   After hot_days the partition is rewritten at ZSTD(9): materially smaller,
 --   still fully searchable, no application involvement. Rows are dropped after
@@ -40,7 +47,7 @@ CREATE DATABASE IF NOT EXISTS {{DATABASE}};
 
 CREATE TABLE IF NOT EXISTS {{DATABASE}}.nat_logs
 (
-    timestamp          DateTime               CODEC(DoubleDelta, ZSTD(1)),
+    timestamp          DateTime('UTC')        CODEC(DoubleDelta, ZSTD(1)),
     router_ip          IPv4                   CODEC(ZSTD(1)),
     subscriber_id      LowCardinality(String) CODEC(ZSTD(1)),
     private_ip         IPv4                   CODEC(ZSTD(1)),
@@ -50,9 +57,9 @@ CREATE TABLE IF NOT EXISTS {{DATABASE}}.nat_logs
     dest_ip            IPv4                   CODEC(ZSTD(1)),
     dest_port          UInt16                 CODEC(ZSTD(1)),
     protocol           LowCardinality(String) CODEC(ZSTD(1)),
-    session_end_time   Nullable(DateTime)     CODEC(DoubleDelta, ZSTD(1)),
+    session_end_time   Nullable(DateTime('UTC')) CODEC(DoubleDelta, ZSTD(1)),
 
-    session_start_time DateTime ALIAS timestamp,
+    session_start_time DateTime('UTC') ALIAS timestamp,
 
     -- Secondary lookup paths. Bloom filters let ClickHouse skip whole
     -- granules for equality searches on columns that are not in the sorting

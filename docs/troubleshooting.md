@@ -1,11 +1,24 @@
 # Troubleshooting
 
-Start here:
+Start in the web interface: the **Diagnostics** tab shows the receiver, worker,
+API and maintenance logs with errors highlighted, and the **Services** tab shows
+what is running. Most problems are visible there without touching a terminal.
+
+From the command line:
 
 ```bash
 sudo bash /opt/network-log-server/scripts/health-check.bash
 nls-admin status
 ```
+
+## Timestamps look wrong
+
+Set your zone in Settings → Time and display. It controls both how timestamps
+are shown and how your search input is interpreted, so they always agree.
+
+Use an IANA name (`Asia/Karachi`, `Europe/London`), not a fixed offset like
+`UTC+5` — a fixed offset is an hour wrong for half the year in any zone with
+daylight saving. Data is always stored in UTC; only the display changes.
 
 ## No logs are arriving
 

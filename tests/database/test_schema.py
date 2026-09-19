@@ -28,6 +28,24 @@ def sql() -> str:
     return SCHEMA.read_text()
 
 
+def test_comments_containing_semicolons_do_not_split_statements():
+    """Regression guard: a ';' inside a SQL comment used to break statement
+    splitting and corrupt the next statement."""
+    statements = render_schema(SCHEMA, "network_logs", 30, 12)
+    for stmt in statements:
+        assert not stmt.startswith("--")
+        assert stmt.upper().startswith("CREATE")
+
+
+def test_timestamps_are_pinned_to_utc(sql):
+    """Without an explicit timezone the stored instant depends on the
+    ClickHouse server's own setting, which this application does not control."""
+    assert "DateTime('UTC')" in sql
+    for column in ("timestamp", "session_end_time"):
+        line = next(l for l in sql.splitlines() if l.strip().startswith(column + " "))
+        assert "'UTC'" in line, f"{column} is not pinned to UTC"
+
+
 def test_placeholders_are_substituted():
     statements = render_schema(SCHEMA, "test_db", 14, 6)
     joined = "\n".join(statements)
@@ -57,7 +75,7 @@ def test_partitioned_monthly(sql):
 def test_session_start_time_costs_no_storage(sql):
     """It is defined as identical to timestamp; storing it twice would waste
     real disk across billions of rows."""
-    assert "session_start_time DateTime ALIAS timestamp" in sql
+    assert "session_start_time DateTime('UTC') ALIAS timestamp" in sql
     # ...but it must still be selectable.
     assert "session_start_time" in SELECT_COLUMNS
     assert "session_start_time" not in COLUMNS   # never written
