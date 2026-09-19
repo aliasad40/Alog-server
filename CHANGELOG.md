@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-08-31
+
+### Fixed
+- **Installer failed at step 8/15 with `systemctl restart redis-server`.**
+  `write_configuration` set `umask 077` without scoping it. A bare `umask` is
+  process-global, so it leaked into `configure_redis` and created
+  `/etc/redis/redis.conf.d-nls.conf` as `0600 root:root`. The `redis` user
+  could not read the file its own config `include`d, so Redis refused to start
+  and the installation aborted.
+
+  Three changes:
+  - `umask 077` in `write_configuration` and `create_admin_account` now runs
+    inside a subshell, so it cannot affect files created later.
+  - `configure_redis` sets `chown root:redis` and `chmod 0640` on the drop-in
+    explicitly, rather than relying on whatever umask is in effect. The file
+    holds the Redis password, so it must be unreadable to others but readable
+    by Redis.
+  - Same reasoning applied to the generated credentials file.
+
+  Existing installations that hit this can recover without reinstalling:
+
+      sudo chown root:redis /etc/redis/redis.conf.d-nls.conf
+      sudo chmod 0640 /etc/redis/redis.conf.d-nls.conf
+      sudo systemctl restart redis-server
+      sudo bash install.bash        # choose 2) Repair
+
 ## [1.0.0] — 2026-08-31
 
 First production release.
